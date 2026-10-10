@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useOS } from '../context/OSContext';
+import { AppID, CharacterProfile } from '../types';
+import CommerceCharacterPicker from '../components/commerce/CommerceCharacterPicker';
+import { sendNuomiCommerceCardToCharacter } from '../utils/nuomiCommerceChat';
 import {
   ArrowLeft, Bicycle, CaretRight, CheckCircle, Clock, ForkKnife, MapPin, Minus,
   Plus, Receipt, MagnifyingGlass, ShoppingCart, Star, Storefront, Ticket, X,
@@ -33,22 +36,33 @@ const RestaurantCard: React.FC<{ restaurant: FoodRestaurant; onClick: () => void
   </button>
 );
 
-const FoodOrderCard: React.FC<{ order: CommerceOrder; expanded: boolean; onToggle: () => void; onAdvance: () => void; onCancel: () => void }> = ({ order, expanded, onToggle, onAdvance, onCancel }) => {
-  const canAdvance = !['completed', 'cancelled'].includes(order.status);
-  const nextAction: Record<string, string> = { waiting_restaurant: '模拟商家接单', preparing: order.fulfillment === 'pickup' ? '模拟餐品备好' : '模拟骑手取餐', rider_picked: order.fulfillment === 'pickup' ? '确认到店取餐' : '模拟开始配送', delivering: '模拟确认送达' };
-  return <div className="overflow-hidden rounded-[21px] border border-stone-100 bg-white shadow-[0_3px_14px_rgba(64,46,30,0.04)]">
-    <button onClick={onToggle} className="flex w-full items-start gap-3 p-4 text-left"><div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[27px]">{order.items[0]?.emoji || '🍱'}</div><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><span className="truncate text-[13px] font-bold">{order.merchantName || order.storeNames[0]}</span><DeliveryStatus status={order.status} fulfillment={order.fulfillment}/></div><div className="mt-1 truncate text-[10px] text-stone-400">{order.fulfillment === 'pickup' ? '到店自取' : '骑手配送'} · {order.id}</div><div className="mt-2 flex items-center justify-between"><span className="text-[10px] text-stone-500">共 {order.items.reduce((sum, item) => sum + item.quantity, 0)} 件餐品</span><span className="text-[14px] font-black">{money(order.total)}</span></div></div><CaretRight size={16} className={`mt-1 shrink-0 text-stone-300 transition-transform ${expanded ? 'rotate-90' : ''}`}/></button>
+const foodEtaLabel = (order: CommerceOrder): string => {
+  if (order.status === 'cancelled') return '订单已取消';
+  if (order.paymentStatus === 'pending_character') return `等待${order.payerCharacterName || 'TA'}回复代付后通知商家`;
+  if (!order.expectedDeliveryAt) return '等待商家确认预计时间';
+  const time = new Date(order.expectedDeliveryAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  if (order.status === 'completed') return order.fulfillment === 'pickup' ? `已于 ${time} 完成取餐` : `已于 ${time} 送达`;
+  return `预计 ${time} 前后${order.fulfillment === 'pickup' ? '可取餐' : '送达'}`;
+};
+
+const FoodOrderCard: React.FC<{ order: CommerceOrder; expanded: boolean; onToggle: () => void; onCancel: () => void; onShare: () => void }> = ({ order, expanded, onToggle, onCancel, onShare }) => (
+  <div className="overflow-hidden rounded-[21px] border border-stone-100 bg-white shadow-[0_3px_14px_rgba(64,46,30,0.04)]">
+    <button onClick={onToggle} className="flex w-full items-start gap-3 p-4 text-left"><div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[27px]">{order.items[0]?.emoji || '🍱'}</div><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><span className="truncate text-[13px] font-bold">{order.merchantName || order.storeNames[0]}</span>{order.paymentStatus === 'pending_character' ? <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-bold text-violet-700">等待 TA 回复</span> : <DeliveryStatus status={order.status} fulfillment={order.fulfillment}/>}</div><div className="mt-1 truncate text-[10px] text-stone-400">{order.fulfillment === 'pickup' ? '到店自取' : '骑手配送'} · {order.id}</div><div className="mt-2 flex items-center justify-between"><span className="text-[10px] text-stone-500">共 {order.items.reduce((sum, item) => sum + item.quantity, 0)} 件餐品</span><span className="text-[14px] font-black">{money(order.total)}</span></div><div className="mt-2 text-[10px] font-semibold text-orange-700">{foodEtaLabel(order)}</div></div><CaretRight size={16} className={`mt-1 shrink-0 text-stone-300 transition-transform ${expanded ? 'rotate-90' : ''}`}/></button>
     {expanded && <div className="border-t border-stone-100 px-4 pb-4 pt-3">
       <div className="space-y-2.5">{order.items.map(item => <div key={item.id} className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-50 text-xl">{item.emoji}</span><div className="min-w-0 flex-1"><div className="truncate text-[11px] font-semibold">{item.name}</div>{item.variant && <div className="mt-0.5 text-[9px] text-stone-400">{item.variant}</div>}</div><span className="text-[10px] text-stone-400">×{item.quantity}</span><span className="text-[11px] font-bold">{money(item.price * item.quantity)}</span></div>)}</div>
       <div className="mt-4 rounded-2xl bg-orange-50/70 p-3"><div className="flex items-center gap-2 text-[11px] font-bold text-stone-700">{order.fulfillment === 'pickup' ? <Storefront size={15}/> : <Bicycle size={15}/>} {order.fulfillment === 'pickup' ? '到店自取流程' : '外卖配送进度'}</div>
-        {order.fulfillment === 'pickup' && <div className="mt-2 rounded-xl bg-white px-3 py-2 text-[11px] text-stone-600">取餐码：<span className="font-black tracking-[0.2em]">{order.id.slice(-4)}</span>　到店后向店员出示</div>}
+        {order.fulfillment === 'pickup' && <div className="mt-2 rounded-xl bg-white px-3 py-2 text-[11px] text-stone-600">取餐码：<span className="font-black tracking-[0.2em]">{order.pickupCode || order.id.slice(-4).toUpperCase()}</span>　到店后向店员出示</div>}
+        <div className="mt-2 rounded-xl bg-white px-3 py-2 text-[10px] font-semibold text-orange-700">{foodEtaLabel(order)}</div>
         <div className="mt-3 space-y-3">{order.events.slice().reverse().map((event, idx) => <div key={`${event.timestamp}-${idx}`} className="flex gap-3"><div className="flex w-3 flex-col items-center"><span className={`mt-1 h-2 w-2 rounded-full ${idx === 0 ? 'bg-emerald-500' : 'bg-orange-200'}`}/>{idx < order.events.length - 1 && <span className="mt-1 h-full min-h-[18px] w-px bg-orange-100"/>}</div><div className="min-w-0 flex-1 pb-1"><div className={`text-[11px] font-semibold ${idx === 0 ? 'text-stone-800' : 'text-stone-400'}`}>{event.label}</div><div className="mt-0.5 text-[10px] leading-4 text-stone-500">{event.detail}</div><div className="mt-0.5 text-[9px] text-stone-300">{new Date(event.timestamp).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</div></div></div>)}</div>
       </div>
       {order.note && <div className="mt-3 rounded-xl bg-stone-50 px-3 py-2 text-[10px] text-stone-500">备注：{order.note}</div>}
-      <div className="mt-3 flex items-center justify-between gap-2"><span className="text-[9px] leading-4 text-stone-400">本地演示订单，不会通知真实商家或骑手</span><div className="flex gap-2">{order.status === 'waiting_restaurant' && <button onClick={onCancel} className="rounded-full border border-stone-200 px-3 py-2 text-[10px] font-semibold text-stone-500">取消订单</button>}{canAdvance && <button onClick={onAdvance} className="rounded-full bg-stone-900 px-3 py-2 text-[10px] font-semibold text-white">{nextAction[order.status] || '更新进度'}</button>}</div></div>
+      {order.payerCharacterName && <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-[10px] text-violet-700">{order.paymentStatus === 'pending_character' ? `等待 ${order.payerCharacterName} 回复代付请求` : order.paymentStatus === 'paid_by_character' ? `${order.payerCharacterName} 已答应替你付款` : order.paymentStatus === 'declined' ? `${order.payerCharacterName} 没有答应代付` : ''}</div>}
+      {order.companionCharacterName && <div className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-[10px] text-rose-700">这顿饭想和 {order.companionCharacterName} 一起分享。</div>}
+      {order.sharedCharacterName && <div className="mt-3 rounded-xl bg-sky-50 px-3 py-2 text-[10px] text-sky-700">订单进展也会同步给 {order.sharedCharacterName}</div>}
+      <div className="mt-3 flex flex-wrap justify-end gap-2">{order.status === 'waiting_restaurant' && <button onClick={onCancel} className="rounded-full border border-stone-200 px-3 py-2 text-[10px] font-semibold text-stone-500">取消订单</button>}<button onClick={onShare} className="rounded-full border border-orange-200 bg-orange-50 px-3 py-2 text-[10px] font-semibold text-orange-800">分享订单给 TA</button></div>
     </div>}
-  </div>;
-};
+  </div>
+);
 
 const DeliveryAddressModal: React.FC<{ address: CommerceAddress; onClose: () => void; onSave: (next: CommerceAddress) => void }> = ({ address, onClose, onSave }) => {
   const [draft, setDraft] = useState(address);
@@ -56,8 +70,8 @@ const DeliveryAddressModal: React.FC<{ address: CommerceAddress; onClose: () => 
 };
 
 const NuomiDeliveryApp: React.FC = () => {
-  const { closeApp } = useOS();
-  const commerce = useNuomiCommerce();
+  const { closeApp, characters, setActiveCharacterId, openApp } = useOS();
+  const commerce = useNuomiCommerce(false);
   const { state } = commerce;
   const [tab, setTab] = useState<DeliveryTab>('home');
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
@@ -77,6 +91,10 @@ const NuomiDeliveryApp: React.FC = () => {
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [orderFilter, setOrderFilter] = useState<'全部' | '进行中' | '已完成'>('全部');
   const [toast, setToast] = useState('');
+  const [characterPickerAction, setCharacterPickerAction] = useState<'food-invite' | 'companion-food' | 'pay-food' | 'share-food-order' | null>(null);
+  const [pendingShareOrder, setPendingShareOrder] = useState<CommerceOrder | null>(null);
+  const [payerCharacter, setPayerCharacter] = useState<CharacterProfile | null>(null);
+  const [companionCharacter, setCompanionCharacter] = useState<CharacterProfile | null>(null);
 
   const notify = (text: string) => { setToast(text); window.setTimeout(() => setToast(''), 2100); };
   const selectedRestaurant = FOOD_RESTAURANTS.find(item => item.id === restaurantId) || null;
@@ -106,7 +124,7 @@ const NuomiDeliveryApp: React.FC = () => {
     if (!restaurant) return;
     const addonMatch = option.match(/\+(\d+(?:\.\d+)?)\s*元/);
     const price = item.price + (addonMatch ? Number(addonMatch[1]) : 0);
-    commerce.addToCart({ kind: 'food', itemId: item.id, storeId: restaurant.id, storeName: restaurant.name, name: item.name, price, emoji: item.emoji, variant: option, shippingFee: restaurant.deliveryFee, freeShippingAt: 0 }, replace, quantity);
+    commerce.addToCart({ kind: 'food', itemId: item.id, storeId: restaurant.id, storeName: restaurant.name, name: item.name, price, emoji: item.emoji, variant: option, shippingFee: restaurant.deliveryFee, freeShippingAt: 0, etaMinutes: restaurant.etaMinutes }, replace, quantity);
     setSelectedFood(null); setReplacePrompt(null); notify('餐品已加入购物车');
   };
   const addFoodToCart = () => {
@@ -119,9 +137,72 @@ const NuomiDeliveryApp: React.FC = () => {
     const currentRestaurant = FOOD_RESTAURANTS.find(item => item.id === selectedCart[0]?.storeId) || cartRestaurant;
     if (!selectedCart.length) { notify('请先选择餐品'); return; }
     if (currentRestaurant && selectedSubtotal < currentRestaurant.minOrder) { notify(`还差 ${money(currentRestaurant.minOrder - selectedSubtotal)} 起送`); return; }
-    const order = commerce.createOrder('food', { address: addressDraft, note: orderNote, fulfillment });
+    const paymentRequestId = payerCharacter ? `nuomi-food-pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` : undefined;
+    const order = commerce.createOrder('food', {
+      address: addressDraft, note: orderNote, fulfillment,
+      payerCharacterId: payerCharacter?.id, payerCharacterName: payerCharacter?.name, paymentRequestId,
+      companionCharacterId: companionCharacter?.id, companionCharacterName: companionCharacter?.name,
+    });
     if (!order) { notify('请先勾选要结算的餐品'); return; }
-    setShowCheckout(false); setOrderNote(''); setTab('orders'); setExpandedOrder(order.id); setRestaurantId(null); notify(fulfillment === 'pickup' ? '自取订单已创建' : '外卖订单已创建');
+    const orderItems = order.items.map(item => ({ name: item.name, quantity: item.quantity, emoji: item.emoji, variant: item.variant, price: item.price, storeName: item.storeName }));
+    const etaText = order.expectedDeliveryAt ? new Date(order.expectedDeliveryAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : `${currentRestaurant?.etaMinutes || 30} 分钟左右`;
+    setShowCheckout(false); setOrderNote(''); setTab('orders'); setExpandedOrder(order.id); setRestaurantId(null);
+    if (payerCharacter && paymentRequestId) {
+      const character = payerCharacter;
+      void sendNuomiCommerceCardToCharacter(character.id, {
+        kind: 'pay-request', app: '糯米外卖', title: '想请你帮忙买单', action: 'pay-request', orderId: order.id, paymentRequestId,
+        detail: `${currentRestaurant?.name || order.merchantName || '这家店'} · ${order.items.map(item => `${item.emoji} ${item.name} ×${item.quantity}`).join('、')} · ${money(order.total)}。${fulfillment === 'pickup' ? '到店自取' : `预计 ${etaText} 送到`}`,
+        content: `我刚点了${currentRestaurant?.name || '一份外卖'}，一共 ${money(order.total)}。你愿意帮我付一下吗？不方便的话也没关系。`,
+        amount: order.total, eta: etaText, fulfillment, storeName: currentRestaurant?.name, items: orderItems,
+      }, `food-pay-request:${paymentRequestId}`, true).then(() => { setActiveCharacterId(character.id); openApp(AppID.Chat); });
+      setPayerCharacter(null); setCompanionCharacter(null); return;
+    }
+    if (companionCharacter) {
+      const character = companionCharacter;
+      void sendNuomiCommerceCardToCharacter(character.id, {
+        kind: 'food-order', app: '糯米外卖', title: '我点好吃的啦', action: 'food-order', orderId: order.id,
+        detail: `${currentRestaurant?.name || order.merchantName || '这家店'} · ${order.items.map(item => `${item.emoji} ${item.name} ×${item.quantity}`).join('、')} · ${money(order.total)} · ${fulfillment === 'pickup' ? `预计 ${etaText} 可以取餐` : `预计 ${etaText} 左右送到`}`,
+        content: `我点了${currentRestaurant?.name || '外卖'}，选了${order.items.map(item => item.name).join('、')}。等送到/取到之后我们一起吃吧。`,
+        amount: order.total, eta: etaText, fulfillment, storeName: currentRestaurant?.name, status: order.status, items: orderItems,
+      }, `food-order:${order.id}:${character.id}`, true).then(() => { setActiveCharacterId(character.id); openApp(AppID.Chat); });
+      setCompanionCharacter(null); notify('订单已下好，已经告诉 TA'); return;
+    }
+    setPayerCharacter(null);
+    notify(fulfillment === 'pickup' ? `已下单，预计 ${etaText} 左右可以取餐` : `已下单，预计 ${etaText} 左右送达`);
+  };
+
+  const openCharacterPicker = (action: NonNullable<typeof characterPickerAction>, order?: CommerceOrder) => {
+    setPendingShareOrder(order || null);
+    setCharacterPickerAction(action);
+  };
+
+  const handleCharacterChoice = async (character: CharacterProfile) => {
+    const action = characterPickerAction;
+    setCharacterPickerAction(null);
+    if (!action) return;
+    if (action === 'pay-food') { setPayerCharacter(character); notify(`结算时会把代付申请发给 ${character.name}`); return; }
+    if (action === 'companion-food') { setCompanionCharacter(character); notify(`下单后会把这顿饭分享给 ${character.name}`); return; }
+    if (action === 'food-invite') {
+      await sendNuomiCommerceCardToCharacter(character.id, {
+        kind: 'food-together', app: '糯米外卖', title: '一起选点吃的？', action: 'food-together',
+        detail: '邀请 TA 一起挑餐厅和菜品，可以聊聊想吃什么、口味偏好和今天的心情。',
+        content: '陪我一起看看吃什么好不好？你今天想吃什么口味的？我们一起挑一家店。',
+      }, `food-together:${Date.now()}:${character.id}`, true);
+      setActiveCharacterId(character.id); openApp(AppID.Chat); return;
+    }
+    if (action === 'share-food-order' && pendingShareOrder) {
+      const order = pendingShareOrder;
+      const etaText = order.expectedDeliveryAt ? new Date(order.expectedDeliveryAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '';
+      await sendNuomiCommerceCardToCharacter(character.id, {
+        kind: 'order', app: '糯米外卖', title: '给你看看我点的外卖', action: 'order', orderId: order.id,
+        detail: `${order.merchantName || order.storeNames.join('、')} · ${order.items.map(item => `${item.emoji} ${item.name} ×${item.quantity}`).join('、')} · ${money(order.total)}${etaText ? ` · 预计 ${etaText}${order.fulfillment === 'pickup' ? ' 可取餐' : ' 送达'}` : ''}`,
+        content: `给你看看我点的外卖：${order.items.map(item => item.name).join('、')}，一共 ${money(order.total)}。${order.status === 'completed' ? '已经送到/取到了。' : '等会儿就能吃啦。'}`,
+        amount: order.total, eta: etaText, status: order.status, fulfillment: order.fulfillment, storeName: order.merchantName || order.storeNames.join('、'),
+        items: order.items.map(item => ({ name: item.name, quantity: item.quantity, emoji: item.emoji, variant: item.variant, price: item.price, storeName: item.storeName })),
+      }, `food-order-share:${order.id}:${character.id}:${Date.now()}`, true);
+      commerce.linkOrderToCharacter(order.id, character.id, character.name);
+      setPendingShareOrder(null); setActiveCharacterId(character.id); openApp(AppID.Chat);
+    }
   };
 
   return <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#faf7f3] text-stone-800">
@@ -132,8 +213,9 @@ const NuomiDeliveryApp: React.FC = () => {
     </header>
     <main className="min-h-0 flex-1 overflow-y-auto pb-3">
       {tab === 'home' && !restaurantId && <div className="mx-auto max-w-3xl px-4 pt-4">
-        <div className="flex items-center justify-between gap-2"><button className="flex min-w-0 items-center gap-2 text-left" onClick={() => setShowAddress(true)}><MapPin size={17} className="shrink-0 text-orange-600"/><div className="min-w-0"><div className="text-[9px] text-stone-400">当前配送地址</div><div className="mt-0.5 truncate text-[12px] font-bold">{fulfillment === 'pickup' ? '已切换为到店自取' : `${state.address.address} ${state.address.detail}`} <CaretRight size={12} className="inline"/></div></div></button><span className="rounded-full bg-white px-2.5 py-1.5 text-[10px] text-stone-400">模拟定位 · 附近商家</span></div>
+        <div className="flex items-center justify-between gap-2"><button className="flex min-w-0 items-center gap-2 text-left" onClick={() => setShowAddress(true)}><MapPin size={17} className="shrink-0 text-orange-600"/><div className="min-w-0"><div className="text-[9px] text-stone-400">当前配送地址</div><div className="mt-0.5 truncate text-[12px] font-bold">{fulfillment === 'pickup' ? '已切换为到店自取' : `${state.address.address} ${state.address.detail}`} <CaretRight size={12} className="inline"/></div></div></button><span className="rounded-full bg-white px-2.5 py-1.5 text-[10px] text-stone-400">附近餐厅 · 多种口味可选</span></div>
         <div className="mt-4 flex rounded-2xl bg-white p-1 shadow-sm"><button onClick={() => setFulfillment('delivery')} className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-[12px] font-bold ${fulfillment === 'delivery' ? 'bg-stone-900 text-white shadow-sm' : 'text-stone-500'}`}><Bicycle size={16}/>送到家</button><button onClick={() => setFulfillment('pickup')} className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-[12px] font-bold ${fulfillment === 'pickup' ? 'bg-stone-900 text-white shadow-sm' : 'text-stone-500'}`}><Storefront size={16}/>到店自取</button></div>
+        <button onClick={() => openCharacterPicker('food-invite')} className="mt-3 flex w-full items-center gap-3 rounded-2xl border border-rose-100 bg-gradient-to-r from-rose-50 to-orange-50 px-4 py-3 text-left"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-xl">💌</span><span className="min-w-0 flex-1"><span className="block text-[12px] font-bold text-stone-800">和 TA 一起选吃的</span><span className="mt-0.5 block text-[10px] text-stone-500">聊聊想吃什么，再一起挑一家店</span></span><CaretRight size={15} className="text-rose-400"/></button>
         <label className="mt-4 flex items-center gap-2 rounded-2xl border border-stone-100 bg-white px-3.5 py-3 shadow-sm"><MagnifyingGlass size={17} className="text-stone-400"/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="搜餐厅、菜品或口味" className="w-full bg-transparent text-[12px] outline-none placeholder:text-stone-400"/><span className="text-[10px] text-stone-300">搜索</span></label>
         <div className="relative mt-4 overflow-hidden rounded-[25px] bg-gradient-to-br from-[#8d422d] via-[#b66341] to-[#e6a36f] p-5 text-white shadow-[0_12px_26px_rgba(165,87,51,0.16)]"><div className="absolute -right-5 -top-8 h-36 w-36 rounded-full bg-white/10"/><div className="absolute bottom-0 right-20 h-24 w-24 rounded-full bg-amber-100/10"/><div className="relative"><span className="inline-flex rounded-full bg-white/20 px-2.5 py-1 text-[9px] font-bold">附近好店 · 现做现送</span><h1 className="mt-3 text-[23px] font-black leading-tight">今天这顿<br/>吃点喜欢的</h1><p className="mt-2 max-w-[205px] text-[11px] leading-5 text-white/75">多家独立店铺，配送和自取各有流程，订单进度清清楚楚。</p><div className="mt-4 flex items-center gap-2 text-[10px]"><span className="rounded-full bg-white px-3 py-2 font-bold text-orange-800">看看附近店铺</span><span className="flex items-center gap-1 text-white/75"><Clock size={13}/>平均 25 分钟</span></div></div><div className="absolute bottom-2 right-4 text-[65px] drop-shadow-md">🍱</div></div>
         <div className="mt-4 grid grid-cols-3 gap-2.5">{[{emoji:'⚡',title:'快速送达',sub:'实时订单状态'},{emoji:'🥡',title:'到店自取',sub:'免配送费'},{emoji:'🏪',title:'多家店铺',sub:'每家独立菜单'}].map(item => <div key={item.title} className="rounded-2xl border border-orange-50 bg-white px-3 py-3"><div className="text-[22px]">{item.emoji}</div><div className="mt-1 text-[11px] font-bold">{item.title}</div><div className="mt-1 text-[9px] text-stone-400">{item.sub}</div></div>)}</div>
@@ -164,11 +246,11 @@ const NuomiDeliveryApp: React.FC = () => {
       </div>}
 
       {tab === 'orders' && <div className="mx-auto max-w-3xl px-4 pb-5 pt-5"><div className="flex items-center justify-between"><div><h2 className="text-[20px] font-black">我的外卖订单</h2><p className="mt-1 text-[11px] text-stone-400">商家接单、制作、骑手取餐和配送分开显示</p></div><Bicycle size={27} className="text-orange-600"/></div><div className="mt-4 flex gap-2">{(['全部', '进行中', '已完成'] as const).map(filter => <button key={filter} onClick={() => setOrderFilter(filter)} className={`rounded-full px-4 py-2 text-[11px] font-semibold ${orderFilter === filter ? 'bg-stone-900 text-white' : 'bg-white text-stone-500 ring-1 ring-stone-100'}`}>{filter}</button>)}</div>
-        {filteredOrders.length ? <div className="mt-3 space-y-3">{filteredOrders.map(order => <FoodOrderCard key={order.id} order={order} expanded={expandedOrder === order.id} onToggle={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)} onAdvance={() => { commerce.advanceOrder(order.id); notify('订单进度已更新（模拟）'); }} onCancel={() => { commerce.cancelOrder(order.id); notify('订单已取消'); }}/>)}</div> : <div className="mt-8 rounded-[26px] bg-white px-6 py-12 text-center"><div className="text-[54px]">🛵</div><div className="mt-3 text-[15px] font-bold">暂时没有外卖订单</div><p className="mt-1 text-[11px] text-stone-400">下单之后会显示接单、备餐、骑手配送或自取进度。</p><button onClick={() => { setTab('home'); setRestaurantId(null); }} className="mt-5 rounded-full bg-stone-900 px-5 py-3 text-[12px] font-bold text-white">找点好吃的</button></div>}
+        {filteredOrders.length ? <div className="mt-3 space-y-3">{filteredOrders.map(order => <FoodOrderCard key={order.id} order={order} expanded={expandedOrder === order.id} onToggle={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)} onCancel={() => { commerce.cancelOrder(order.id); notify('订单已取消'); }} onShare={() => openCharacterPicker('share-food-order', order)}/>)}</div> : <div className="mt-8 rounded-[26px] bg-white px-6 py-12 text-center"><div className="text-[54px]">🛵</div><div className="mt-3 text-[15px] font-bold">暂时没有外卖订单</div><p className="mt-1 text-[11px] text-stone-400">下单之后会显示接单、备餐、骑手配送或自取进度。</p><button onClick={() => { setTab('home'); setRestaurantId(null); }} className="mt-5 rounded-full bg-stone-900 px-5 py-3 text-[12px] font-bold text-white">找点好吃的</button></div>}
         <div className="mt-4 flex gap-2 rounded-2xl bg-orange-50 p-3 text-[10px] leading-5 text-orange-800"><Bicycle size={15} className="mt-0.5 shrink-0"/><span>外卖订单和商城快递单独存储。配送订单包含商家、制作、骑手流程；自取订单不经过骑手配送。</span></div>
       </div>}
 
-      {tab === 'me' && <div className="mx-auto max-w-3xl px-4 pb-5 pt-5"><h2 className="text-[20px] font-black">我的外卖</h2><p className="mt-1 text-[11px] text-stone-400">配送地址和点单记录</p><div className="mt-4 rounded-[26px] bg-gradient-to-br from-[#8d422d] to-[#e1a16e] p-5 text-white"><div className="flex items-center gap-3"><div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/20 text-3xl">🥡</div><div><div className="text-[15px] font-bold">糯米食客</div><div className="mt-1 text-[10px] text-white/75">每顿饭都值得好好吃</div></div></div><div className="mt-5 grid grid-cols-3 gap-3"><div><div className="text-[20px] font-black">{foodOrders.length}</div><div className="mt-1 text-[10px] text-white/70">外卖订单</div></div><div><div className="text-[20px] font-black">{cart.reduce((s, item) => s + item.quantity, 0)}</div><div className="mt-1 text-[10px] text-white/70">购物车餐品</div></div><div><div className="text-[20px] font-black">{FOOD_RESTAURANTS.length}</div><div className="mt-1 text-[10px] text-white/70">附近店铺</div></div></div></div><button onClick={() => setShowAddress(true)} className="mt-4 flex w-full items-center gap-3 rounded-[20px] border border-stone-100 bg-white p-4 text-left"><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-50 text-orange-600"><MapPin size={20}/></div><div className="min-w-0 flex-1"><div className="text-[12px] font-bold">配送地址</div><div className="mt-1 truncate text-[10px] text-stone-400">{state.address.recipient} · {state.address.address} {state.address.detail}</div></div><CaretRight size={16} className="text-stone-300"/></button><button onClick={() => setTab('orders')} className="mt-2 flex w-full items-center gap-3 rounded-[20px] border border-stone-100 bg-white p-4 text-left"><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-50 text-amber-600"><Receipt size={20}/></div><div className="flex-1"><div className="text-[12px] font-bold">外卖订单</div><div className="mt-1 text-[10px] text-stone-400">查看商家处理、送餐或自取进度</div></div><CaretRight size={16} className="text-stone-300"/></button><div className="mt-4 rounded-2xl bg-white p-4"><div className="flex items-center gap-2 text-[12px] font-bold"><Ticket size={17} className="text-orange-600"/>演示功能说明</div><p className="mt-2 text-[10px] leading-5 text-stone-400">当前商家、菜品、配送费、订单状态均为本地模拟数据。不会调用真实外卖平台，不会实际付款，也不会联系店家或骑手。</p></div></div>}
+      {tab === 'me' && <div className="mx-auto max-w-3xl px-4 pb-5 pt-5"><h2 className="text-[20px] font-black">我的外卖</h2><p className="mt-1 text-[11px] text-stone-400">配送地址和点单记录</p><div className="mt-4 rounded-[26px] bg-gradient-to-br from-[#8d422d] to-[#e1a16e] p-5 text-white"><div className="flex items-center gap-3"><div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/20 text-3xl">🥡</div><div><div className="text-[15px] font-bold">糯米食客</div><div className="mt-1 text-[10px] text-white/75">每顿饭都值得好好吃</div></div></div><div className="mt-5 grid grid-cols-3 gap-3"><div><div className="text-[20px] font-black">{foodOrders.length}</div><div className="mt-1 text-[10px] text-white/70">外卖订单</div></div><div><div className="text-[20px] font-black">{cart.reduce((s, item) => s + item.quantity, 0)}</div><div className="mt-1 text-[10px] text-white/70">购物车餐品</div></div><div><div className="text-[20px] font-black">{FOOD_RESTAURANTS.length}</div><div className="mt-1 text-[10px] text-white/70">附近店铺</div></div></div></div><button onClick={() => setShowAddress(true)} className="mt-4 flex w-full items-center gap-3 rounded-[20px] border border-stone-100 bg-white p-4 text-left"><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-orange-50 text-orange-600"><MapPin size={20}/></div><div className="min-w-0 flex-1"><div className="text-[12px] font-bold">配送地址</div><div className="mt-1 truncate text-[10px] text-stone-400">{state.address.recipient} · {state.address.address} {state.address.detail}</div></div><CaretRight size={16} className="text-stone-300"/></button><button onClick={() => setTab('orders')} className="mt-2 flex w-full items-center gap-3 rounded-[20px] border border-stone-100 bg-white p-4 text-left"><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-50 text-amber-600"><Receipt size={20}/></div><div className="flex-1"><div className="text-[12px] font-bold">外卖订单</div><div className="mt-1 text-[10px] text-stone-400">查看商家处理、送餐或自取进度</div></div><CaretRight size={16} className="text-stone-300"/></button><div className="mt-4 rounded-2xl bg-white p-4"><div className="flex items-center gap-2 text-[12px] font-bold"><Ticket size={17} className="text-orange-600"/>点单小贴士</div><p className="mt-2 text-[10px] leading-5 text-stone-400">每家店都有自己的起送金额和配送费。外卖会显示预计送达时间；选择到店自取后，可以在订单里查看取餐码和备餐进度。</p></div></div>}
     </main>
 
     <nav className="z-20 grid shrink-0 grid-cols-4 border-t border-orange-100/70 bg-white/95 px-2 pb-2 pt-2 backdrop-blur-xl">{([{id:'home',label:'找美食',icon:ForkKnife},{id:'cart',label:'购物车',icon:ShoppingCart},{id:'orders',label:'外卖订单',icon:Bicycle},{id:'me',label:'我的',icon:Ticket}] as const).map(item => { const Icon = item.icon; return <button key={item.id} onClick={() => { setTab(item.id); if (item.id !== 'home') setRestaurantId(null); }} className={`relative flex flex-col items-center gap-1 py-1 ${tab === item.id ? 'text-stone-900' : 'text-stone-400'}`}><Icon size={20} weight={tab === item.id ? 'fill' : 'regular'}/><span className="text-[9px] font-semibold">{item.label}</span>{item.id === 'cart' && cart.length > 0 && <span className="absolute left-[calc(50%+7px)] top-0 h-1.5 w-1.5 rounded-full bg-rose-500"/>}<span className={`mt-0.5 h-0.5 w-4 rounded-full ${tab === item.id ? 'bg-orange-600' : 'bg-transparent'}`}/></button>; })}</nav>
@@ -177,8 +259,18 @@ const NuomiDeliveryApp: React.FC = () => {
 
     {replacePrompt && <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-900/45 p-5 backdrop-blur-[2px]"><div className="w-full max-w-sm rounded-[25px] bg-white p-5 shadow-2xl"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-50 text-orange-600"><Storefront size={25}/></div><h3 className="mt-3 text-center text-[15px] font-black">要更换点餐店铺吗？</h3><p className="mt-2 text-center text-[11px] leading-5 text-stone-500">外卖购物车一次只结算一家店铺。切换到「{FOOD_RESTAURANTS.find(item => item.id === replacePrompt.item.restaurantId)?.name}」会清空当前店铺的餐品。</p><div className="mt-5 grid grid-cols-2 gap-2"><button onClick={() => setReplacePrompt(null)} className="rounded-2xl bg-stone-100 py-3 text-[11px] font-bold text-stone-600">先不更换</button><button onClick={() => commitFoodAdd(replacePrompt.item, replacePrompt.option, replacePrompt.quantity, true)} className="rounded-2xl bg-stone-900 py-3 text-[11px] font-bold text-white">清空并加入</button></div></div></div>}
 
-    {showCheckout && <div className="absolute inset-0 z-40 flex items-end justify-center bg-stone-900/45 p-3 backdrop-blur-[2px]" onClick={() => setShowCheckout(false)}><div className="w-full max-w-lg rounded-[27px] bg-white p-5 shadow-2xl" onClick={event => event.stopPropagation()}><div className="flex items-center justify-between"><h3 className="text-[16px] font-black">确认外卖订单</h3><button onClick={() => setShowCheckout(false)} className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-100"><X size={16}/></button></div><div className="mt-3 rounded-2xl bg-orange-50/70 p-3"><div className="text-[12px] font-black">{FOOD_RESTAURANTS.find(item => item.id === selectedCart[0]?.storeId)?.name || cartRestaurant?.name}</div><div className="mt-1 text-[10px] text-stone-500">{selectedCart.reduce((sum, item) => sum + item.quantity, 0)} 件餐品 · {fulfillment === 'pickup' ? '到店自取' : '骑手送达'}</div></div>{fulfillment === 'delivery' ? <button onClick={() => setShowAddress(true)} className="mt-3 flex w-full items-center gap-3 rounded-2xl bg-stone-50 p-3 text-left"><MapPin size={20} className="text-orange-600"/><div className="min-w-0 flex-1"><div className="text-[11px] font-bold">{addressDraft.recipient}　{addressDraft.phone}</div><div className="mt-1 truncate text-[10px] text-stone-500">{addressDraft.address} {addressDraft.detail}</div></div><CaretRight size={15} className="text-stone-300"/></button> : <div className="mt-3 rounded-2xl bg-stone-50 p-3 text-[11px] text-stone-600"><Storefront size={15} className="mr-1 inline text-orange-600"/>到店自取：下单后生成取餐码，不需要填写配送地址。</div>}<div className="mt-4 max-h-32 space-y-2 overflow-y-auto">{selectedCart.map(item => <div key={item.id} className="flex items-center gap-2 text-[11px]"><span>{item.emoji}</span><span className="min-w-0 flex-1 truncate text-stone-600">{item.name} ×{item.quantity}</span><span className="font-bold">{money(item.price * item.quantity)}</span></div>)}</div><label className="mt-4 block"><span className="mb-1.5 block text-[11px] font-semibold text-stone-500">订单备注（选填）</span><textarea value={orderNote} onChange={event => setOrderNote(event.target.value)} rows={2} placeholder="例如：少辣、不要香菜、到了电话联系" className="w-full resize-none rounded-2xl border border-stone-200 bg-stone-50 p-3 text-[11px] outline-none focus:border-orange-400"/></label><div className="mt-4 rounded-2xl bg-stone-50 p-3"><div className="flex items-center justify-between text-[11px] text-stone-500"><span>餐品小计</span><span>{money(selectedSubtotal)}</span></div><div className="mt-2 flex items-center justify-between text-[11px] text-stone-500"><span>{fulfillment === 'pickup' ? '自取配送费' : '配送费'}</span><span>{money(deliveryFee)}</span></div><div className="mt-3 flex items-center justify-between border-t border-stone-200 pt-3"><span className="text-[11px] font-bold">演示结算金额</span><span className="text-[20px] font-black text-rose-600">{money(selectedSubtotal + deliveryFee)}</span></div></div><div className="mt-3 text-[9px] leading-4 text-stone-400">本地演示订单：不会实际扣款、通知餐厅或呼叫骑手。</div><button onClick={placeOrder} className="mt-3 w-full rounded-2xl bg-stone-900 py-4 text-[12px] font-black text-white">确认下单</button></div></div>}
+    {showCheckout && <div className="absolute inset-0 z-40 flex items-end justify-center bg-stone-900/45 p-3 backdrop-blur-[2px]" onClick={() => setShowCheckout(false)}><div className="w-full max-w-lg rounded-[27px] bg-white p-5 shadow-2xl" onClick={event => event.stopPropagation()}>
+      <div className="flex items-center justify-between"><h3 className="text-[16px] font-black">确认外卖订单</h3><button onClick={() => setShowCheckout(false)} className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-100"><X size={16}/></button></div>
+      <div className="mt-3 rounded-2xl bg-orange-50/70 p-3"><div className="text-[12px] font-black">{FOOD_RESTAURANTS.find(item => item.id === selectedCart[0]?.storeId)?.name || cartRestaurant?.name}</div><div className="mt-1 text-[10px] text-stone-500">{selectedCart.reduce((sum, item) => sum + item.quantity, 0)} 件餐品 · {fulfillment === 'pickup' ? '到店自取' : '骑手送达'}</div></div>
+      {fulfillment === 'delivery' ? <button onClick={() => setShowAddress(true)} className="mt-3 flex w-full items-center gap-3 rounded-2xl bg-stone-50 p-3 text-left"><MapPin size={20} className="text-orange-600"/><div className="min-w-0 flex-1"><div className="text-[11px] font-bold">{addressDraft.recipient}　{addressDraft.phone}</div><div className="mt-1 truncate text-[10px] text-stone-500">{addressDraft.address} {addressDraft.detail}</div></div><CaretRight size={15} className="text-stone-300"/></button> : <div className="mt-3 rounded-2xl bg-stone-50 p-3 text-[11px] text-stone-600"><Storefront size={15} className="mr-1 inline text-orange-600"/>到店自取：下单后生成取餐码，不需要填写配送地址。</div>}
+      <div className="mt-4 max-h-32 space-y-2 overflow-y-auto">{selectedCart.map(item => <div key={item.id} className="flex items-center gap-2 text-[11px]"><span>{item.emoji}</span><span className="min-w-0 flex-1 truncate text-stone-600">{item.name} ×{item.quantity}</span><span className="font-bold">{money(item.price * item.quantity)}</span></div>)}</div>
+      <label className="mt-4 block"><span className="mb-1.5 block text-[11px] font-semibold text-stone-500">订单备注（选填）</span><textarea value={orderNote} onChange={event => setOrderNote(event.target.value)} rows={2} placeholder="例如：少辣、不要香菜、到了电话联系" className="w-full resize-none rounded-2xl border border-stone-200 bg-stone-50 p-3 text-[11px] outline-none focus:border-orange-400"/></label>
+      <div className="mt-4 rounded-2xl bg-stone-50 p-3"><div className="flex items-center justify-between text-[11px] text-stone-500"><span>餐品小计</span><span>{money(selectedSubtotal)}</span></div><div className="mt-2 flex items-center justify-between text-[11px] text-stone-500"><span>{fulfillment === 'pickup' ? '自取配送费' : '配送费'}</span><span>{money(deliveryFee)}</span></div><div className="mt-2 flex items-center justify-between text-[11px] text-stone-500"><span>预计{fulfillment === 'pickup' ? '可取餐' : '送达'}</span><span>{(FOOD_RESTAURANTS.find(item => item.id === selectedCart[0]?.storeId)?.etaMinutes || 30)} 分钟左右</span></div><div className="mt-3 flex items-center justify-between border-t border-stone-200 pt-3"><span className="text-[11px] font-bold">订单合计</span><span className="text-[20px] font-black text-rose-600">{money(selectedSubtotal + deliveryFee)}</span></div></div>
+      <div className="mt-3 grid grid-cols-2 gap-2"><button onClick={() => openCharacterPicker('companion-food')} className="rounded-2xl border border-rose-200 bg-rose-50 py-3 text-[11px] font-bold text-rose-700">{companionCharacter ? `和 ${companionCharacter.name} 一起吃` : '和 TA 一起吃'}</button><button onClick={() => openCharacterPicker('pay-food')} className="rounded-2xl border border-violet-200 bg-violet-50 py-3 text-[11px] font-bold text-violet-700">{payerCharacter ? `请 ${payerCharacter.name} 代付` : '请 TA 帮忙代付'}</button></div>
+      <button onClick={placeOrder} className="mt-3 w-full rounded-2xl bg-stone-900 py-4 text-[12px] font-black text-white">{payerCharacter ? '发送代付申请' : '确认下单'}</button>
+    </div></div>}
     {showAddress && <DeliveryAddressModal address={showCheckout ? addressDraft : state.address} onClose={() => setShowAddress(false)} onSave={next => { setAddressDraft(next); commerce.setAddress(next); notify('配送地址已保存'); }}/>} 
+    {characterPickerAction && <CommerceCharacterPicker characters={characters} title={characterPickerAction === 'food-invite' ? '邀请 TA 一起选吃的' : characterPickerAction === 'companion-food' ? '这顿饭想和谁一起分享？' : characterPickerAction === 'pay-food' ? '请谁帮忙代付？' : '把外卖订单分享给谁？'} description={characterPickerAction === 'pay-food' ? 'TA 会在聊天里收到代付申请，可以答应或婉拒。' : undefined} onClose={() => setCharacterPickerAction(null)} onChoose={character => { void handleCharacterChoice(character); }} />}
     {toast && <div className="absolute bottom-20 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-stone-900/95 px-4 py-2.5 text-[11px] font-semibold text-white shadow-xl">{toast}</div>}
   </div>;
 };

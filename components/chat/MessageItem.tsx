@@ -2379,6 +2379,42 @@ const MessageItem = React.memo(({
             return commonLayout(card);
         }
 
+        // 糯米商城 / 外卖卡片：用户主动分享的购物、订单、礼物或代付互动，不属于角色手机隐私。
+        if (pc.kind === 'nuomi-commerce') {
+            const commerce: any = pc.commerce || {};
+            const isFood = pc.app === '糯米外卖' || commerce.kind === 'food-order' || commerce.kind === 'food-together';
+            const isPay = commerce.kind === 'pay-request';
+            const isGift = ['gift', 'gift-arrival', 'gift-unbox'].includes(commerce.kind);
+            const accent = isPay ? '#c084fc' : isGift ? '#fb7185' : isFood ? '#fb923c' : '#d6a04b';
+            const rows = Array.isArray(commerce.items) ? commerce.items.slice(0, 4) : [];
+            const card = (
+                <div className="w-64">
+                    <div className="relative overflow-hidden rounded-2xl border shadow-[0_8px_24px_rgba(30,24,18,0.35)]" style={{ borderColor: `${accent}55`, background: isFood ? 'linear-gradient(155deg,#2b2019 0%,#1e1713 60%,#17110e 100%)' : 'linear-gradient(155deg,#292119 0%,#1e1712 60%,#15100c 100%)' }}>
+                        <div className="pointer-events-none absolute -right-7 -top-7 h-24 w-24 rounded-full blur-2xl" style={{ background: `${accent}33` }} />
+                        <div className="relative flex items-center gap-2 border-b px-3 pb-2 pt-3" style={{ borderColor: `${accent}33` }}>
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-lg" style={{ background: `${accent}20` }}>{commerce.imageEmoji || (isFood ? '🍱' : isGift ? '🎁' : '🛍️')}</span>
+                            <div className="min-w-0 flex-1"><div className="text-[9px] font-bold tracking-[0.18em]" style={{ color: accent }}>{pc.app || '糯米生活'}</div><div className="truncate text-[12px] font-bold text-white/95">{pc.title || '一条分享'}</div></div>
+                            <span className="text-[9px] text-white/40">{timeStr}</span>
+                        </div>
+                        <div className="relative space-y-2 px-3 py-3">
+                            {commerce.storeName && <div className="text-[10px] font-semibold text-white/65">{commerce.storeName}</div>}
+                            {rows.map((item: any, index: number) => <div key={`${item.name || 'item'}-${index}`} className="flex items-center gap-2"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm">{item.emoji || '🛍️'}</span><div className="min-w-0 flex-1"><div className="truncate text-[10px] text-white/85">{item.name || '商品'}{item.variant ? ` · ${item.variant}` : ''}</div><div className="text-[9px] text-white/40">×{item.quantity || 1}</div></div>{item.price != null && <span className="text-[10px] text-white/65">¥{Number(item.price).toFixed(2)}</span>}</div>)}
+                            {pc.detail && <p className="whitespace-pre-wrap text-[10px] leading-[1.65] text-white/60">{pc.detail}</p>}
+                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                {commerce.status && <span className="rounded-full px-2 py-1 text-[9px] font-bold" style={{ color: accent, background: `${accent}20` }}>{commerce.status}</span>}
+                                {commerce.eta && <span className="rounded-full bg-white/8 px-2 py-1 text-[9px] text-white/60">预计 {commerce.eta}</span>}
+                                {commerce.amount != null && <span className="ml-auto text-[13px] font-black" style={{ color: accent }}>¥{Number(commerce.amount).toFixed(2)}</span>}
+                            </div>
+                            {isPay && <div className="rounded-xl border px-2.5 py-2 text-[10px] leading-5" style={{ borderColor: `${accent}40`, background: `${accent}10`, color: '#f0d9ff' }}>TA 正在等你的答复：这笔订单，你愿意帮忙付吗？</div>}
+                            {isGift && <div className="text-[10px] leading-5 text-white/55">一份留给 TA 的心意。你可以在聊天里说说收到它时的反应。</div>}
+                        </div>
+                        <div className="relative flex items-center justify-between border-t px-3 py-2" style={{ borderColor: `${accent}22` }}><span className="text-[9px] text-white/35">你们的共同生活记录</span><span className="text-[9px] font-bold" style={{ color: accent }}>{isPay ? '代付请求' : isGift ? '礼物与包裹' : isFood ? '一起吃点好的' : '一起逛逛'}</span></div>
+                    </div>
+                </div>
+            );
+            return commonLayout(card);
+        }
+
         // 人际关系变动卡片（用户在查手机里删/拉黑了角色的好友）
         if (pc.kind === 'relationship') {
             const isBlock = pc.action === 'blocked';

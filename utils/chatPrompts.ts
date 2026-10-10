@@ -1279,7 +1279,19 @@ ${voiceActingGuide()}`;
                     // 框定为「你刚看了眼自己手机、这是里面的隐私」——不暗示用户在偷看，且带一点"未必愿意被看到"的私密感。
                     const pc: any = m.metadata?.phoneCard || {};
                     const body = typeof m.content === 'string' ? m.content : '';
-                    content = `${timeStr}（你刚刚看了眼手机，这是你${pc.app || '手机'}里的内容——这些是你自己的隐私，不一定愿意让其他人看到。当成手机里确实有的东西即可，聊到再自然提及，不必主动说起。）\n${body}`;
+                    if (pc.kind === 'nuomi-commerce') {
+                        const commerce: any = pc.commerce || {};
+                        const cardItems = Array.isArray(commerce.items) ? commerce.items.map((item: any) => `${item.emoji || '•'} ${item.name || '商品'} ×${item.quantity || 1}${item.variant ? `（${item.variant}）` : ''}`).join('、') : '';
+                        const payInstruction = commerce.kind === 'pay-request'
+                            ? '这是用户在向你提出代付请求。请按你的人设与关系自然明确地答应或拒绝；答应时说清楚“我来付 / 这单我来”，拒绝时也要明确，不要声称已经完成现实世界的支付。'
+                            : commerce.kind === 'gift' || commerce.kind === 'gift-arrival' || commerce.kind === 'gift-unbox'
+                                ? '这是你和用户之间的礼物/包裹互动。可以依照你的人设表现期待、惊喜、吐槽或拆礼物的反应，不要机械复述卡片，也不要凭空声称现实物流真的发生。'
+                                : '这是用户主动分享给你的商城或外卖动态。可以根据你的人设聊聊喜好、给建议、问用户要不要一起买/一起吃，不要照抄卡片内容。';
+                        content = `${timeStr}（用户把一条${pc.app || '糯米生活'}动态分享给你。${commerce.storeName ? `店铺：${commerce.storeName}。` : ''}${cardItems ? `商品：${cardItems}。` : ''}${commerce.amount != null ? `金额：¥${Number(commerce.amount).toFixed(2)}。` : ''}${commerce.eta ? `预计时间：${commerce.eta}。` : ''}${commerce.status ? `当前状态：${commerce.status}。` : ''}${payInstruction}）\n${body}`;
+                    } else {
+                        // 普通 phone_card 仍然表示角色手机中的私人内容。
+                        content = `${timeStr}（你刚刚看了眼手机，这是你${pc.app || '手机'}里的内容——这些是你自己的隐私，不一定愿意让其他人看到。当成手机里确实有的东西即可，聊到再自然提及，不必主动说起。）\n${body}`;
+                    }
                 }
                 else if ((m.type as string) === 'theater_card') {
                     // theater_card：用户「窥视」了你某个时段的行为小剧场。那段演出就是你当时真实在做的事，

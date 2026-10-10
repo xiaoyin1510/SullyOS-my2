@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { sendNuomiCommerceCardToCharacter } from './nuomiCommerceChat';
 
 /** Nuomi buyer-side commerce demo. All records are local to this SullyOS installation. */
 export type CommerceKind = 'parcel' | 'food';
@@ -9,7 +10,7 @@ export type CommerceStatus = ParcelStatus | FoodStatus;
 
 export interface ProductShop {
   id: string; name: string; slogan: string; category: string; rating: number; sales: string;
-  freight: number; freeFreightAt: number; emoji: string; gradient: string; tags: string[];
+  freight: number; freeFreightAt: number; emoji: string; gradient: string; tags: string[]; shippingDays?: number;
 }
 export interface ShopProduct {
   id: string; shopId: string; name: string; category: string; price: number; originalPrice: number;
@@ -27,7 +28,7 @@ export interface FoodMenuItem {
 export interface CommerceCartLine {
   id: string; kind: CommerceKind; itemId: string; storeId: string; storeName: string; name: string;
   price: number; quantity: number; emoji: string; variant?: string; selected: boolean;
-  shippingFee: number; freeShippingAt: number;
+  shippingFee: number; freeShippingAt: number; shippingDays?: number; etaMinutes?: number;
 }
 export interface CommerceOrderItem {
   id: string; itemId: string; storeId: string; storeName: string; name: string; price: number;
@@ -40,6 +41,12 @@ export interface CommerceOrder {
   subtotal: number; shippingFee: number; total: number; address: CommerceAddress; note: string;
   fulfillment: FulfillmentMode; merchantId?: string; merchantName?: string; storeNames: string[];
   trackingNo?: string; carrier?: string; events: OrderEvent[];
+  expectedDeliveryAt?: number; fulfillmentStartedAt?: number; statusUpdatedAt?: number; shippingDays?: number; etaMinutes?: number;
+  paymentStatus?: 'not_requested' | 'pending_character' | 'paid_by_character' | 'declined';
+  paymentRequestId?: string; paymentRequestedAt?: number; payerCharacterId?: string; payerCharacterName?: string;
+  recipientCharacterId?: string; recipientCharacterName?: string; giftOpenedAt?: number;
+  companionCharacterId?: string; companionCharacterName?: string;
+  sharedCharacterId?: string; sharedCharacterName?: string; pickupCode?: string;
 }
 export interface NuomiCommerceState {
   version: 1; carts: Record<CommerceKind, CommerceCartLine[]>; orders: CommerceOrder[];
@@ -53,12 +60,12 @@ const STORAGE_KEY = 'sully.nuomi.commerce.v1';
 const CHANGE_EVENT = 'sully-nuomi-commerce-changed';
 
 export const PRODUCT_SHOPS: ProductShop[] = [
-  { id: 'shop-select', name: '糯米优选', slogan: '认真挑选的日常好物', category: '生活好物', rating: 4.9, sales: '2.6万+', freight: 6, freeFreightAt: 79, emoji: '🛍️', gradient: 'from-amber-100 to-orange-200', tags: ['精选', '满79包邮'] },
-  { id: 'shop-island', name: '小岛零食铺', slogan: '把小快乐装进口袋', category: '零食饮料', rating: 4.8, sales: '1.8万+', freight: 5, freeFreightAt: 59, emoji: '🍪', gradient: 'from-rose-100 to-pink-200', tags: ['回购榜', '满59包邮'] },
-  { id: 'shop-home', name: '松弛家居研究所', slogan: '让家舒服一点点', category: '家居日用', rating: 4.9, sales: '9800+', freight: 8, freeFreightAt: 99, emoji: '🪴', gradient: 'from-emerald-100 to-teal-200', tags: ['生活美学', '满99包邮'] },
-  { id: 'shop-wear', name: '慢慢穿搭', slogan: '舒服自在，刚刚好', category: '服饰配件', rating: 4.7, sales: '7600+', freight: 8, freeFreightAt: 129, emoji: '🧢', gradient: 'from-violet-100 to-purple-200', tags: ['日常穿搭', '满129包邮'] },
-  { id: 'shop-digital', name: '好物数码局', slogan: '小设备解决小麻烦', category: '数码配件', rating: 4.8, sales: '6300+', freight: 6, freeFreightAt: 99, emoji: '🎧', gradient: 'from-sky-100 to-blue-200', tags: ['实用数码', '满99包邮'] },
-  { id: 'shop-sweet', name: '甜心杂货社', slogan: '给平凡日子一点甜', category: '礼物文创', rating: 4.9, sales: '1.1万+', freight: 5, freeFreightAt: 69, emoji: '🎁', gradient: 'from-fuchsia-100 to-pink-200', tags: ['送礼灵感', '满69包邮'] },
+  { id: 'shop-select', name: '糯米优选', slogan: '认真挑选的日常好物', category: '生活好物', rating: 4.9, sales: '2.6万+', freight: 6, freeFreightAt: 79, shippingDays: 2, emoji: '🛍️', gradient: 'from-amber-100 to-orange-200', tags: ['精选', '满79包邮'] },
+  { id: 'shop-island', name: '小岛零食铺', slogan: '把小快乐装进口袋', category: '零食饮料', rating: 4.8, sales: '1.8万+', freight: 5, freeFreightAt: 59, shippingDays: 2, emoji: '🍪', gradient: 'from-rose-100 to-pink-200', tags: ['回购榜', '满59包邮'] },
+  { id: 'shop-home', name: '松弛家居研究所', slogan: '让家舒服一点点', category: '家居日用', rating: 4.9, sales: '9800+', freight: 8, freeFreightAt: 99, shippingDays: 3, emoji: '🪴', gradient: 'from-emerald-100 to-teal-200', tags: ['生活美学', '满99包邮'] },
+  { id: 'shop-wear', name: '慢慢穿搭', slogan: '舒服自在，刚刚好', category: '服饰配件', rating: 4.7, sales: '7600+', freight: 8, freeFreightAt: 129, shippingDays: 3, emoji: '🧢', gradient: 'from-violet-100 to-purple-200', tags: ['日常穿搭', '满129包邮'] },
+  { id: 'shop-digital', name: '好物数码局', slogan: '小设备解决小麻烦', category: '数码配件', rating: 4.8, sales: '6300+', freight: 6, freeFreightAt: 99, shippingDays: 2, emoji: '🎧', gradient: 'from-sky-100 to-blue-200', tags: ['实用数码', '满99包邮'] },
+  { id: 'shop-sweet', name: '甜心杂货社', slogan: '给平凡日子一点甜', category: '礼物文创', rating: 4.9, sales: '1.1万+', freight: 5, freeFreightAt: 69, shippingDays: 2, emoji: '🎁', gradient: 'from-fuchsia-100 to-pink-200', tags: ['送礼灵感', '满69包邮'] },
 ];
 
 export const SHOP_PRODUCTS: ShopProduct[] = [
@@ -177,7 +184,91 @@ const eventDetail = (kind: CommerceKind, status: CommerceStatus, fulfillment: Fu
   return map[status as FoodStatus];
 };
 
-export function useNuomiCommerce() {
+const labelForOrder = (order: CommerceOrder, status: CommerceStatus): string => {
+  if (order.kind === 'parcel') return parcelStatusLabel[status as ParcelStatus];
+  if (order.fulfillment === 'pickup') {
+    const pickupLabels: Partial<Record<FoodStatus, string>> = { waiting_restaurant: '等待店员接单', preparing: '正在准备餐品', rider_picked: '可以取餐', completed: '已取餐', cancelled: '已取消' };
+    return pickupLabels[status as FoodStatus] || foodStatusLabel[status as FoodStatus] || status;
+  }
+  return foodStatusLabel[status as FoodStatus] || status;
+};
+
+function orderEta(order: CommerceOrder): number {
+  if (order.expectedDeliveryAt) return order.expectedDeliveryAt;
+  const base = order.fulfillmentStartedAt || order.createdAt;
+  if (order.kind === 'parcel') return base + (Math.max(1, order.shippingDays || 3) * 24 * 60 * 60 * 1000);
+  return base + (Math.max(8, order.etaMinutes || 30) * 60 * 1000);
+}
+
+/** Move shipment/food milestones forward from elapsed time. Re-opening the app catches up missed stages. */
+function advanceOrderByClock(order: CommerceOrder, now: number): CommerceOrder {
+  if (order.status === 'completed' || order.status === 'cancelled' || order.paymentStatus === 'pending_character' || order.paymentStatus === 'declined') return order;
+  const base = order.fulfillmentStartedAt || order.createdAt;
+  const eta = orderEta(order);
+  const total = Math.max(60_000, eta - base);
+  const steps: Array<{ status: CommerceStatus; at: number }> = order.kind === 'parcel'
+    ? [
+        { status: 'shipped', at: base + Math.min(15 * 60_000, total * 0.08) },
+        { status: 'delivering', at: Math.max(base + 15 * 60_000, eta - 6 * 60 * 60_000) },
+        { status: 'completed', at: eta },
+      ]
+    : order.fulfillment === 'pickup'
+      ? [
+          { status: 'preparing', at: base + Math.min(60_000, total * 0.12) },
+          { status: 'rider_picked', at: base + Math.max(2 * 60_000, total * 0.72) },
+          { status: 'completed', at: eta },
+        ]
+      : [
+          { status: 'preparing', at: base + Math.min(60_000, total * 0.12) },
+          { status: 'rider_picked', at: base + Math.max(2 * 60_000, total * 0.56) },
+          { status: 'delivering', at: base + Math.max(3 * 60_000, total * 0.8) },
+          { status: 'completed', at: eta },
+        ];
+  const orderSequence = order.kind === 'parcel'
+    ? ['awaiting_shipment', 'shipped', 'delivering', 'completed']
+    : order.fulfillment === 'pickup'
+      ? ['waiting_restaurant', 'preparing', 'rider_picked', 'completed']
+      : ['waiting_restaurant', 'preparing', 'rider_picked', 'delivering', 'completed'];
+  const existingStage = orderSequence.indexOf(order.status);
+  let nextStatus = order.status;
+  const events = [...(order.events || [])];
+  let changed = false;
+  for (const step of steps) {
+    const stage = orderSequence.indexOf(step.status);
+    if (stage <= existingStage || now < step.at) continue;
+    nextStatus = step.status;
+    events.push({ status: step.status, label: labelForOrder(order, step.status), detail: eventDetail(order.kind, step.status, order.fulfillment), timestamp: step.at });
+    changed = true;
+  }
+  const expectedDeliveryAt = order.expectedDeliveryAt || eta;
+  const pickupCode = order.kind === 'food' && order.fulfillment === 'pickup' ? (order.pickupCode || order.id.slice(-4).toUpperCase()) : order.pickupCode;
+  if (!changed && order.expectedDeliveryAt === expectedDeliveryAt && order.pickupCode === pickupCode) return order;
+  return { ...order, status: nextStatus, expectedDeliveryAt, pickupCode, events, ...(changed ? { statusUpdatedAt: now } : {}) } as CommerceOrder;
+}
+
+export function resolveNuomiCharacterPaymentReply(paymentRequestId: string, characterId: string, reply: string, repliedAt: number): 'paid' | 'declined' | null {
+  if (!paymentRequestId || !reply) return null;
+  const decline = /(?:我.{0,4}(?:不能|不想|不方便|没法|没办法|无法).{0,8}(?:帮你|替你|给你|代付|付款|付钱|买单)|不想(?:帮你|替你|给你).{0,6}(?:付|付款|付钱|买单)|不(?:帮你|替你|方便替你|方便帮你|愿意替你).{0,6}(?:付|付款|付钱|买单|代付)|不能代付|不方便代付|你自己付|自己付吧|这次你付|我这次不付)/.test(reply);
+  const agree = !decline && /(?:我.{0,5}(?:帮你|替你|给你).{0,6}(?:付|付款|付钱|买单)|我来.{0,4}(?:付|付款|买单)|这单我来|算我的|我请你|包在我身上|我来承担)/.test(reply);
+  if (!agree && !decline) return null;
+  const current = readNuomiCommerceState();
+  let matched = false;
+  const orders = current.orders.map(order => {
+    if (order.paymentRequestId !== paymentRequestId || order.payerCharacterId !== characterId || order.paymentStatus !== 'pending_character' || repliedAt <= (order.paymentRequestedAt || order.createdAt)) return order;
+    matched = true;
+    if (agree) {
+      const base = repliedAt;
+      const eta = order.kind === 'parcel' ? base + Math.max(1, order.shippingDays || 3) * 24 * 60 * 60 * 1000 : base + Math.max(8, order.etaMinutes || 30) * 60 * 1000;
+      return { ...order, paymentStatus: 'paid_by_character' as const, fulfillmentStartedAt: base, expectedDeliveryAt: eta, status: order.kind === 'parcel' ? 'awaiting_shipment' as const : 'waiting_restaurant' as const, events: [...order.events, { status: order.status, label: 'TA 答应代付', detail: `${order.payerCharacterName || 'TA'} 答应替你承担这笔订单。`, timestamp: repliedAt }] };
+    }
+    return { ...order, paymentStatus: 'declined' as const, status: 'cancelled' as const, events: [...order.events, { status: 'cancelled' as const, label: '订单已取消', detail: `${order.payerCharacterName || 'TA'} 这次没有答应代付，订单已为你取消。`, timestamp: repliedAt }] };
+  });
+  if (!matched) return null;
+  publishState({ ...current, orders });
+  return agree ? 'paid' : 'declined';
+}
+
+export function useNuomiCommerce(enableClock = true) {
   const [state, setState] = useState<NuomiCommerceState>(() => readNuomiCommerceState());
   const stateRef = useRef(state);
   useEffect(() => { stateRef.current = state; }, [state]);
@@ -191,6 +282,61 @@ export function useNuomiCommerce() {
     window.addEventListener('storage', refresh);
     return () => { window.removeEventListener(CHANGE_EVENT, refresh); window.removeEventListener('storage', refresh); };
   }, []);
+  useEffect(() => {
+    if (!enableClock || typeof window === 'undefined') return;
+    let busy = false;
+    const tick = async () => {
+      if (busy || typeof window === 'undefined') return;
+      busy = true;
+      try {
+        const previous = readNuomiCommerceState();
+        const orders = previous.orders.map(order => advanceOrderByClock(order, Date.now()));
+        const changedOrders = orders.filter((order, index) => order !== previous.orders[index]);
+        if (!changedOrders.length) return;
+        const next = { ...previous, orders };
+        stateRef.current = next; setState(next); publishState(next);
+        for (const order of changedOrders) {
+          const previousOrder = previous.orders.find(item => item.id === order.id);
+          if (!previousOrder) continue;
+          const notifyCharId = order.recipientCharacterId || order.companionCharacterId || order.sharedCharacterId;
+          if (!notifyCharId) continue;
+          const priorEventKeys = new Set((previousOrder.events || []).map(event => `${event.status}:${event.timestamp}`));
+          const newEvents = (order.events || []).filter(event => !priorEventKeys.has(`${event.status}:${event.timestamp}`));
+          const isGift = !!order.recipientCharacterId;
+          const etaText = order.expectedDeliveryAt ? new Date(order.expectedDeliveryAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+          for (const orderEvent of newEvents) {
+            const isFinal = orderEvent.status === 'completed';
+            const statusText = labelForOrder(order, orderEvent.status);
+            const title = isGift
+              ? (isFinal ? '礼物送到啦' : orderEvent.status === 'shipped' ? '礼物已经寄出' : orderEvent.status === 'delivering' ? '礼物正在派送' : '礼物订单有新进展')
+              : isFinal ? (order.kind === 'parcel' ? '快递已签收' : order.fulfillment === 'pickup' ? '已经取餐' : '外卖已送达')
+                : order.kind === 'parcel' ? (orderEvent.status === 'awaiting_shipment' ? '商家正在准备包裹' : orderEvent.status === 'shipped' ? '快递已发出' : '快递正在派送')
+                : orderEvent.status === 'waiting_restaurant' ? '商家已收到订单' : orderEvent.status === 'preparing' ? '餐点正在准备' : orderEvent.status === 'rider_picked' ? (order.fulfillment === 'pickup' ? '可以去取餐了' : '骑手已取餐') : '外卖正在送来';
+            const content = isGift
+              ? (isFinal ? '你送我的礼物到了，我有点期待，想看看里面是什么。' : `礼物有新进展：${statusText}。`)
+              : isFinal ? `${order.kind === 'parcel' ? '快递' : order.fulfillment === 'pickup' ? '餐点' : '外卖'}${order.fulfillment === 'pickup' ? '已经取到了' : '已经送到了'}。`
+                : `${order.merchantName || order.storeNames.join('、')}：${statusText}。`;
+            await sendNuomiCommerceCardToCharacter(notifyCharId, {
+              kind: isGift && isFinal ? 'gift-arrival' : 'order-update', app: order.kind === 'parcel' ? '糯米商城' : '糯米外卖',
+              title,
+              detail: `${order.items.map(item => `${item.emoji} ${item.name} ×${item.quantity}`).join('、')}。${etaText ? `预计送达时间：${etaText}。` : ''}${isGift && isFinal ? '可以继续在聊天里聊聊拆礼物的反应。' : '订单进度已更新。'}`,
+              content,
+              status: statusText, orderId: order.id, amount: order.total, eta: etaText,
+              items: order.items.map(item => ({ name: item.name, quantity: item.quantity, emoji: item.emoji, variant: item.variant, price: item.price, storeName: item.storeName })),
+              storeName: order.merchantName || order.storeNames.join('、'), fulfillment: order.fulfillment,
+            }, `order-status:${order.id}:${orderEvent.status}:${orderEvent.timestamp}`, isFinal);
+          }
+        }
+      } finally { busy = false; }
+    };
+    void tick();
+    const interval = window.setInterval(() => { void tick(); }, 15_000);
+    const onFocus = () => { void tick(); };
+    const onVisibility = () => { if (!document.hidden) void tick(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { window.clearInterval(interval); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVisibility); };
+  }, [enableClock]);
   const commit = useCallback((mutate: (current: NuomiCommerceState) => NuomiCommerceState) => {
     const next = mutate(readNuomiCommerceState());
     stateRef.current = next; setState(next); publishState(next); return next;
@@ -231,9 +377,13 @@ export function useNuomiCommerce() {
   })), [commit]);
   const setAddress = useCallback((address: CommerceAddress) => commit(current => ({ ...current, address: safeAddress(address) })), [commit]);
 
-  const createOrder = useCallback((kind: CommerceKind, options: { address?: CommerceAddress; note?: string; fulfillment?: FulfillmentMode } = {}): CommerceOrder | null => {
+  const createOrder = useCallback((kind: CommerceKind, options: {
+    address?: CommerceAddress; note?: string; fulfillment?: FulfillmentMode; itemsOverride?: CommerceCartLine[];
+    payerCharacterId?: string; payerCharacterName?: string; paymentRequestId?: string;
+    recipientCharacterId?: string; recipientCharacterName?: string; companionCharacterId?: string; companionCharacterName?: string;
+  } = {}): CommerceOrder | null => {
     const current = readNuomiCommerceState();
-    const selected = current.carts[kind].filter(line => line.selected);
+    const selected = options.itemsOverride || current.carts[kind].filter(line => line.selected);
     if (selected.length === 0) return null;
     const fulfillment: FulfillmentMode = kind === 'food' ? (options.fulfillment || 'delivery') : 'delivery';
     // A multi-shop parcel checkout becomes one shipment per seller. Food orders are always a single restaurant.
@@ -250,6 +400,10 @@ export function useNuomiCommerce() {
         ? (subtotal >= (lines[0]?.freeShippingAt || 0) ? 0 : (lines[0]?.shippingFee || 0))
         : (fulfillment === 'delivery' ? (lines[0]?.shippingFee || 0) : 0);
       const status: CommerceStatus = kind === 'parcel' ? 'awaiting_shipment' : 'waiting_restaurant';
+      const paymentPending = !!options.payerCharacterId;
+      const shippingDays = kind === 'parcel' ? Math.max(1, lines[0]?.shippingDays || 3) : undefined;
+      const etaMinutes = kind === 'food' ? Math.max(8, FOOD_RESTAURANTS.find(item => item.id === lines[0]?.storeId)?.etaMinutes || 30) : undefined;
+      const expectedDeliveryAt = paymentPending ? undefined : kind === 'parcel' ? createdAt + (shippingDays || 3) * 24 * 60 * 60 * 1000 : createdAt + (etaMinutes || 30) * 60 * 1000;
       const merchantId = kind === 'food' ? lines[0]?.storeId : undefined;
       const merchantName = kind === 'food' ? lines[0]?.storeName : undefined;
       return {
@@ -259,8 +413,20 @@ export function useNuomiCommerce() {
         subtotal, shippingFee, total: subtotal + shippingFee, address: safeAddress(options.address || current.address), note: (options.note || '').trim(), fulfillment,
         merchantId, merchantName, storeNames: Array.from(new Set(lines.map(item => item.storeName))),
         trackingNo: kind === 'parcel' ? `NM${String(createdAt).slice(-10)}CN` : undefined,
-        carrier: kind === 'parcel' ? '糯米快递 · 模拟物流' : undefined,
-        events: [{ status, label: labelForStatus(kind, status), detail: eventDetail(kind, status, fulfillment), timestamp: createdAt }],
+        carrier: kind === 'parcel' ? '糯米快递' : undefined,
+        shippingDays, etaMinutes, expectedDeliveryAt, fulfillmentStartedAt: paymentPending ? undefined : createdAt,
+        paymentStatus: paymentPending ? 'pending_character' : 'not_requested',
+        paymentRequestId: options.paymentRequestId, paymentRequestedAt: paymentPending ? createdAt : undefined,
+        payerCharacterId: options.payerCharacterId, payerCharacterName: options.payerCharacterName,
+        recipientCharacterId: options.recipientCharacterId, recipientCharacterName: options.recipientCharacterName,
+        companionCharacterId: options.companionCharacterId, companionCharacterName: options.companionCharacterName,
+        pickupCode: kind === 'food' && fulfillment === 'pickup' ? String(Math.floor(1000 + Math.random() * 9000)) : undefined,
+        events: [{
+          status,
+          label: paymentPending ? '等待代付回复' : labelForOrder({ kind, fulfillment } as CommerceOrder, status),
+          detail: paymentPending ? `已向${options.payerCharacterName || 'TA'}发送代付申请；收到答复后再${kind === 'parcel' ? '安排发货' : '通知商家接单'}。` : eventDetail(kind, status, fulfillment),
+          timestamp: createdAt,
+        }],
       };
     });
     const firstOrder = orders[0] || null;
@@ -268,7 +434,7 @@ export function useNuomiCommerce() {
     const selectedIds = new Set(selected.map(item => item.id));
     commit(latest => ({
       ...latest,
-      carts: { ...latest.carts, [kind]: latest.carts[kind].filter(item => !selectedIds.has(item.id)) },
+      carts: options.itemsOverride ? latest.carts : { ...latest.carts, [kind]: latest.carts[kind].filter(item => !selectedIds.has(item.id)) },
       orders: [...orders, ...latest.orders],
       address: firstOrder.address,
     }));
@@ -290,17 +456,25 @@ export function useNuomiCommerce() {
         const sequence: FoodStatus[] = ['waiting_restaurant', 'preparing', 'rider_picked', 'delivering', 'completed'];
         nextStatus = sequence[Math.min(sequence.indexOf(order.status as FoodStatus) + 1, sequence.length - 1)];
       }
-      return { ...order, status: nextStatus, events: [...order.events, { status: nextStatus, label: labelForStatus(order.kind, nextStatus), detail: eventDetail(order.kind, nextStatus, order.fulfillment), timestamp: Date.now() }] };
+      return { ...order, status: nextStatus, events: [...order.events, { status: nextStatus, label: labelForOrder(order, nextStatus), detail: eventDetail(order.kind, nextStatus, order.fulfillment), timestamp: Date.now() }] };
     }),
   })), [commit]);
+  const linkOrderToCharacter = useCallback((orderId: string, characterId: string, characterName: string) => commit(current => ({
+    ...current, orders: current.orders.map(order => order.id === orderId ? { ...order, sharedCharacterId: characterId, sharedCharacterName: characterName } : order),
+  })), [commit]);
+
   const cancelOrder = useCallback((orderId: string) => commit(current => ({
     ...current,
     orders: current.orders.map(order => {
       if (order.id !== orderId || !['awaiting_shipment', 'waiting_restaurant'].includes(order.status)) return order;
       const status: CommerceStatus = 'cancelled';
-      return { ...order, status, events: [...order.events, { status, label: '已取消', detail: '订单已取消（本地演示记录）', timestamp: Date.now() }] };
+      return { ...order, status, paymentStatus: order.paymentStatus === 'pending_character' ? 'declined' as const : order.paymentStatus, events: [...order.events, { status, label: '已取消', detail: order.paymentStatus === 'pending_character' ? '你取消了代付申请，这笔订单不再继续。' : '这笔订单已取消。', timestamp: Date.now() }] };
     }),
   })), [commit]);
+  const markGiftOpened = useCallback((orderId: string) => commit(current => ({
+    ...current,
+    orders: current.orders.map(order => order.id === orderId && order.recipientCharacterId ? { ...order, giftOpenedAt: Date.now() } : order),
+  })), [commit]);
 
-  return { state, addToCart, setQuantity, toggleCartLine, selectAllCart, removeCartLine, toggleFavorite, setAddress, createOrder, advanceOrder, cancelOrder };
+  return { state, addToCart, setQuantity, toggleCartLine, selectAllCart, removeCartLine, toggleFavorite, setAddress, createOrder, advanceOrder, cancelOrder, markGiftOpened, linkOrderToCharacter };
 }

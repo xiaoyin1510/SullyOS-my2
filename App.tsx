@@ -12,6 +12,12 @@ import ChatBroadcast from './components/ChatBroadcast';
 import WebUpdateNotice from './components/WebUpdateNotice';
 import { isIOSStandaloneWebApp } from './utils/iosStandalone';
 import { installDevDebugLifecycleCapture } from './utils/devDebug';
+import { useNuomiCommerce } from './utils/nuomiCommerce';
+
+const NuomiCommerceClock: React.FC = () => {
+  useNuomiCommerce(true);
+  return null;
+};
 
 const App: React.FC = () => {
   React.useEffect(() => {
@@ -38,6 +44,7 @@ const App: React.FC = () => {
           style={{ transform: 'translateZ(0)' }}
         >
           <OSProvider>
+            <NuomiCommerceClock />
             <MusicProvider>
               <PhoneShell />
             </MusicProvider>

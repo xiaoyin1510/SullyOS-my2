@@ -10,6 +10,8 @@ import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallba
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
+import { NUOMI_COMMERCE_TRIGGER_REPLY } from '../utils/nuomiCommerceChat';
+import { resolveNuomiCharacterPaymentReply } from '../utils/nuomiCommerce';
 import { isVisibleChatMessage } from '../utils/chatMessageVisibility';
 import { chatCharacterDisplayName } from '../utils/characterRemark';
 import { AppID, Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot } from '../types';
@@ -1658,6 +1660,58 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         }
         triggerAI(messages);
     };
+
+    // Commerce cards are saved by the standalone Nuomi apps, then the character is brought into
+    // this chat and invited to react to the shared item/order. This keeps commerce independent of
+    // MessageType and uses the existing persisted chat history.
+    const handledNuomiCommerceTriggers = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        const onCommerceTrigger = (event: Event) => {
+            const detail = (event as CustomEvent<{ charId?: string; deliveryId?: string }>).detail;
+            const targetCharId = detail?.charId;
+            const deliveryId = detail?.deliveryId || '';
+            if (!targetCharId || targetCharId !== activeCharacterId || !deliveryId || handledNuomiCommerceTriggers.current.has(deliveryId)) return;
+            handledNuomiCommerceTriggers.current.add(deliveryId);
+            void (async () => {
+                await new Promise(resolve => window.setTimeout(resolve, 250));
+                if (activeCharIdRef.current !== targetCharId) return;
+                try {
+                    const loaded = await DB.getRecentMessagesWithCount(targetCharId, Math.max(visibleCountRef.current, 30), message => isVisibleChatMessage(message, !!charRef.current?.hideSystemLogs));
+                    const recent = loaded.messages.filter(message => isVisibleChatMessage(message, !!charRef.current?.hideSystemLogs)).slice(-Math.max(visibleCountRef.current, 30));
+                    const last = recent[recent.length - 1];
+                    if (!last || last.role !== 'user' || last.type !== 'phone_card' || last.metadata?.phoneCard?.kind !== 'nuomi-commerce') return;
+                    setMessages(recent);
+                    // Let React finish installing the restored history before handing that exact history
+                    // to the normal AI generation pipeline.
+                    window.setTimeout(() => {
+                        if (activeCharIdRef.current === targetCharId) triggerAI(recent);
+                    }, 80);
+                } catch (error) {
+                    console.warn('[NuomiCommerce] Could not trigger character reaction:', error);
+                }
+            })();
+        };
+        window.addEventListener(NUOMI_COMMERCE_TRIGGER_REPLY, onCommerceTrigger);
+        return () => window.removeEventListener(NUOMI_COMMERCE_TRIGGER_REPLY, onCommerceTrigger);
+    }, [activeCharacterId, triggerAI]);
+
+    // A character's reply to a Nuomi pay request drives the order state. Only classify the immediate
+    // reply to a recently shared pay-request card; ordinary chat messages never change orders.
+    useEffect(() => {
+        const latest = messages[messages.length - 1];
+        if (!latest || latest.role !== 'assistant' || !activeCharacterId) return;
+        let request: Message | undefined;
+        for (let index = messages.length - 2; index >= 0; index--) {
+            const message = messages[index];
+            if (message.role !== 'user') continue;
+            const phoneCard = message.metadata?.phoneCard;
+            if (message.type === 'phone_card' && phoneCard?.kind === 'nuomi-commerce' && phoneCard?.commerce?.kind === 'pay-request') request = message;
+            break;
+        }
+        const paymentRequestId = request?.metadata?.phoneCard?.commerce?.paymentRequestId;
+        if (!request || !paymentRequestId || latest.timestamp <= request.timestamp || latest.charId !== activeCharacterId) return;
+        resolveNuomiCharacterPaymentReply(paymentRequestId, activeCharacterId, latest.content || '', latest.timestamp);
+    }, [messages, activeCharacterId]);
 
     const handleReroll = async () => {
         if (isTyping || messages.length === 0) return;
