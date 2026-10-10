@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useOS } from '../context/OSContext';
 import {
   ArrowLeft, CaretRight, CheckCircle, Heart, MapPin, Minus, Package, Plus,
-  Receipt, Search, ShoppingBag, ShoppingCart, Star, Truck, X,
+  Receipt, MagnifyingGlass, ShoppingBag, ShoppingCart, Star, Truck, X,
 } from '@phosphor-icons/react';
 import {
   CommerceOrder, CommerceAddress, ProductShop, ShopProduct, PRODUCT_SHOPS, SHOP_PRODUCTS,
@@ -147,7 +147,7 @@ const NuomiShopApp: React.FC = () => {
 
     <main className="min-h-0 flex-1 overflow-y-auto pb-3">
       {tab === 'home' && <div className="mx-auto max-w-3xl px-4 pt-4">
-        <label className="flex items-center gap-2 rounded-2xl border border-stone-100 bg-white px-3.5 py-3 shadow-sm"><Search size={17} className="text-stone-400"/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="搜一搜好物、店铺或灵感" className="w-full bg-transparent text-[12px] outline-none placeholder:text-stone-400"/><span className="text-[10px] text-stone-300">搜索</span></label>
+        <label className="flex items-center gap-2 rounded-2xl border border-stone-100 bg-white px-3.5 py-3 shadow-sm"><MagnifyingGlass size={17} className="text-stone-400"/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="搜一搜好物、店铺或灵感" className="w-full bg-transparent text-[12px] outline-none placeholder:text-stone-400"/><span className="text-[10px] text-stone-300">搜索</span></label>
         <div className="relative mt-4 overflow-hidden rounded-[26px] bg-gradient-to-br from-[#6e4b3a] via-[#926d55] to-[#c69b74] p-5 text-white shadow-[0_12px_26px_rgba(116,78,54,0.18)]">
           <div className="absolute -right-4 -top-8 h-36 w-36 rounded-full bg-white/10"/><div className="absolute -bottom-12 right-20 h-36 w-36 rounded-full bg-amber-100/10"/>
           <div className="relative"><ShopPill tone="rose">本周精选 · 日常好物</ShopPill><h1 className="mt-4 text-[23px] font-black leading-tight tracking-wide">把喜欢的生活<br/>一点点装进来</h1><p className="mt-2 max-w-[205px] text-[11px] leading-5 text-white/75">从小物件到生活灵感，遇见值得带回家的好东西。</p><div className="mt-4 flex items-center gap-2 text-[10px] font-semibold"><span className="rounded-full bg-white px-3 py-2 text-stone-800">逛逛精选</span><span className="flex items-center gap-1 text-white/75"><Package size={14}/> 商城商品 · 快递配送</span></div></div><div className="absolute bottom-3 right-5 text-[64px] drop-shadow-md">🛍️</div>
